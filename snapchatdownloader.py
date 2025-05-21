@@ -1,14 +1,15 @@
 import sys
 from PyQt5.QtWidgets import (QApplication, QWidget, QLineEdit, QPushButton,
                              QVBoxLayout, QHBoxLayout, QProgressBar, QTextEdit,
-                             QListWidget, QMessageBox)
-from PyQt5.QtCore import QThread, pyqtSignal
+                             QListWidget, QMessageBox, QTabWidget)
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QIcon
 import os
 import requests
 from bs4 import BeautifulSoup
 import json
 from time import sleep
+from datetime import datetime
 
 class DownloadThread(QThread):
     update_progress = pyqtSignal(int)
@@ -119,94 +120,131 @@ class SnapchatDownloader(QWidget):
     def __init__(self):
         super().__init__()
         self.userslist = []
+        self.favorites = []
+        self.history = []
         self.download_queue = []
         self.is_downloading = False
         self.initUI()
+        self.load_data()
 
     def initUI(self):
         self.setWindowTitle('Snapchat Downloader')
         self.setWindowIcon(QIcon('snap.png'))
 
         main_layout = QVBoxLayout()
-        form_layout = QVBoxLayout()
-        user_list_layout = QVBoxLayout()
 
-        self.setStyleSheet("""
-            QWidget {
-                font-size: 14px;
-            }
-            QLineEdit, QTextEdit {
-                padding: 5px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QPushButton {
-                background-color: #5cb85c;
-                color: white;
-                padding: 10px;
-                border: none;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #4cae4c;
-            }
-            QProgressBar {
-                height: 20px;
-                text-align: center;
-            }
-            QListWidget {
-                padding: 5px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
-            }
-            QTextEdit {
-                background-color: black;
-                color: white;
-                font-family: Consolas, monospace;
-            }
-        """)
+        self.tab_widget = QTabWidget()
 
-        self.user_list_widget = QListWidget()
+        users_tab = QWidget()
+        users_layout = QVBoxLayout()
+
         self.new_user_input = QLineEdit()
         self.new_user_input.setPlaceholderText('Enter Snapchat username')
         self.add_user_button = QPushButton('Add User')
-        self.remove_user_button = QPushButton('Remove Selected')
 
         input_layout = QHBoxLayout()
         input_layout.addWidget(self.new_user_input)
         input_layout.addWidget(self.add_user_button)
-        input_layout.addWidget(self.remove_user_button)
 
-        list_management_layout = QHBoxLayout()
-        self.save_list_button = QPushButton('Save List')
-        self.load_list_button = QPushButton('Load List')
-        list_management_layout.addWidget(self.save_list_button)
-        list_management_layout.addWidget(self.load_list_button)
+        lists_layout = QHBoxLayout()
+
+        users_list_layout = QVBoxLayout()
+        self.user_list_widget = QListWidget()
+        self.user_list_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.user_list_widget.itemDoubleClicked.connect(self.add_to_download_queue)
+        users_list_layout.addWidget(QPushButton('Available Users'))
+        users_list_layout.addWidget(self.user_list_widget)
+
+        favorites_layout = QVBoxLayout()
+        self.favorites_widget = QListWidget()
+        self.favorites_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.favorites_widget.itemDoubleClicked.connect(self.add_to_download_queue)
+        favorites_layout.addWidget(QPushButton('Favorites'))
+        favorites_layout.addWidget(self.favorites_widget)
+
+        queue_layout = QVBoxLayout()
+        self.queue_widget = QListWidget()
+        self.queue_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        queue_layout.addWidget(QPushButton('Download Queue'))
+        queue_layout.addWidget(self.queue_widget)
+
+        lists_layout.addLayout(users_list_layout)
+        lists_layout.addLayout(favorites_layout)
+        lists_layout.addLayout(queue_layout)
+
+        button_layout = QHBoxLayout()
+        self.add_to_favorites = QPushButton('Add to Favorites')
+        self.remove_from_favorites = QPushButton('Remove from Favorites')
+        self.add_all_to_queue = QPushButton('Add All to Queue')
+        self.clear_queue = QPushButton('Clear Queue')
+        self.remove_selected = QPushButton('Remove Selected')
+
+        button_layout.addWidget(self.add_to_favorites)
+        button_layout.addWidget(self.remove_from_favorites)
+        button_layout.addWidget(self.add_all_to_queue)
+        button_layout.addWidget(self.clear_queue)
+        button_layout.addWidget(self.remove_selected)
 
         self.progress_bar = QProgressBar()
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.download_button = QPushButton('Download')
 
+        users_layout.addLayout(input_layout)
+        users_layout.addLayout(lists_layout)
+        users_layout.addLayout(button_layout)
+        users_layout.addWidget(self.progress_bar)
+        users_layout.addWidget(self.log_area)
+        users_layout.addWidget(self.download_button)
+
+        users_tab.setLayout(users_layout)
+        self.tab_widget.addTab(users_tab, "Users")
+
+        history_tab = QWidget()
+        history_layout = QVBoxLayout()
+        self.history_widget = QListWidget()
+        history_layout.addWidget(self.history_widget)
+        history_tab.setLayout(history_layout)
+        self.tab_widget.addTab(history_tab, "History")
+
+        main_layout.addWidget(self.tab_widget)
+        self.setLayout(main_layout)
+        self.resize(800, 600)
+
         self.add_user_button.clicked.connect(self.add_user)
-        self.remove_user_button.clicked.connect(self.remove_user)
-        self.save_list_button.clicked.connect(self.save_userlist)
-        self.load_list_button.clicked.connect(self.load_userlist)
+        self.add_to_favorites.clicked.connect(self.add_selected_to_favorites)
+        self.remove_from_favorites.clicked.connect(self.remove_selected_from_favorites)
+        self.add_all_to_queue.clicked.connect(self.add_all_to_download_queue)
+        self.clear_queue.clicked.connect(self.clear_download_queue)
+        self.remove_selected.clicked.connect(self.remove_selected_items)
         self.download_button.clicked.connect(self.start_download)
 
-        user_list_layout.addWidget(self.user_list_widget)
-        user_list_layout.addLayout(input_layout)
-        user_list_layout.addLayout(list_management_layout)
+    def load_data(self):
+        try:
+            with open('snapchat_data.json', 'r') as f:
+                data = json.load(f)
+                self.userslist = data.get('users', [])
+                self.favorites = data.get('favorites', [])
+                self.history = data.get('history', [])
 
-        form_layout.addLayout(user_list_layout)
-        form_layout.addWidget(self.progress_bar)
-        form_layout.addWidget(self.log_area)
+                self.user_list_widget.clear()
+                self.favorites_widget.clear()
+                self.history_widget.clear()
 
-        main_layout.addLayout(form_layout)
-        main_layout.addWidget(self.download_button)
+                self.user_list_widget.addItems(self.userslist)
+                self.favorites_widget.addItems(self.favorites)
+                self.history_widget.addItems(self.history)
+        except FileNotFoundError:
+            pass
 
-        self.setLayout(main_layout)
-        self.resize(500, 600)
+    def save_data(self):
+        data = {
+            'users': self.userslist,
+            'favorites': self.favorites,
+            'history': self.history
+        }
+        with open('snapchat_data.json', 'w') as f:
+            json.dump(data, f, indent=4)
 
     def add_user(self):
         new_user = self.new_user_input.text().strip()
@@ -214,20 +252,62 @@ class SnapchatDownloader(QWidget):
             self.userslist.append(new_user)
             self.user_list_widget.addItem(new_user)
             self.new_user_input.clear()
+            self.save_data()
         else:
             QMessageBox.warning(self, "Error", "Invalid or duplicate username.")
 
-    def remove_user(self):
+    def add_selected_to_favorites(self):
         selected_items = self.user_list_widget.selectedItems()
-        if not selected_items:
-            return
         for item in selected_items:
-            self.userslist.remove(item.text())
-            self.user_list_widget.takeItem(self.user_list_widget.row(item))
+            username = item.text()
+            if username not in self.favorites:
+                self.favorites.append(username)
+                self.favorites_widget.addItem(username)
+        self.save_data()
+
+    def remove_selected_from_favorites(self):
+        selected_items = self.favorites_widget.selectedItems()
+        for item in selected_items:
+            self.favorites.remove(item.text())
+            self.favorites_widget.takeItem(self.favorites_widget.row(item))
+        self.save_data()
+
+    def add_to_download_queue(self, item):
+        username = item.text()
+        if username not in [self.queue_widget.item(i).text() 
+                          for i in range(self.queue_widget.count())]:
+            self.queue_widget.addItem(username)
+            self.download_queue.append(username)
+
+    def add_all_to_download_queue(self):
+        source_widget = self.tab_widget.currentWidget().findChild(QListWidget)
+        if source_widget:
+            for i in range(source_widget.count()):
+                username = source_widget.item(i).text()
+                if username not in [self.queue_widget.item(i).text() 
+                                  for i in range(self.queue_widget.count())]:
+                    self.queue_widget.addItem(username)
+                    self.download_queue.append(username)
+
+    def clear_download_queue(self):
+        self.queue_widget.clear()
+        self.download_queue.clear()
+
+    def remove_selected_items(self):
+        current_widget = self.tab_widget.currentWidget().findChild(QListWidget)
+        if current_widget:
+            selected_items = current_widget.selectedItems()
+            for item in selected_items:
+                if current_widget == self.user_list_widget:
+                    self.userslist.remove(item.text())
+                elif current_widget == self.queue_widget:
+                    self.download_queue.remove(item.text())
+                current_widget.takeItem(current_widget.row(item))
+            self.save_data()
 
     def start_download(self):
-        if not self.userslist:
-            QMessageBox.warning(self, "Error", "Please add at least one user before downloading.")
+        if not self.download_queue:
+            QMessageBox.warning(self, "Error", "Please add users to download queue first.")
             return
 
         if self.is_downloading:
@@ -238,14 +318,22 @@ class SnapchatDownloader(QWidget):
 
         self.is_downloading = True
         self.download_button.setText('Cancel Download')
-        self.download_button.setEnabled(True)  
+        self.download_button.setEnabled(True)
         self.log_area.clear()
         self.progress_bar.setValue(0)
-        self.thread = DownloadThread(self.userslist)
+
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for username in self.download_queue:
+            history_entry = f"{username} - {current_time}"
+            self.history.append(history_entry)
+            self.history_widget.addItem(history_entry)
+
+        self.thread = DownloadThread(self.download_queue)
         self.thread.update_progress.connect(self.update_progress)
         self.thread.update_log.connect(self.update_log)
         self.thread.download_complete.connect(self.download_complete)
         self.thread.start()
+        self.save_data()
 
     def download_complete(self):
         self.is_downloading = False
@@ -254,31 +342,9 @@ class SnapchatDownloader(QWidget):
         self.progress_bar.setValue(0)
         if not self.thread.is_cancelled:
             QMessageBox.information(self, "Download Complete", "Downloaded successfully.")
+            self.clear_download_queue()
         else:
             self.log_area.append("Download cancelled by user.")
-
-    def save_userlist(self):
-        if not self.userslist:
-            return
-
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        userlist_path = os.path.join(script_dir, 'userlist.txt')
-        with open(userlist_path, 'w') as f:
-            f.write('\n'.join(self.userslist))
-
-    def load_userlist(self):
-        try:
-
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            userlist_path = os.path.join(script_dir, 'userlist.txt')
-            with open(userlist_path, 'r') as f:
-                users = f.read().splitlines()
-                for user in users:
-                    if user.strip() and user not in self.userslist:
-                        self.userslist.append(user)
-                        self.user_list_widget.addItem(user)
-        except FileNotFoundError:
-            pass
 
     def update_progress(self, value):
         self.progress_bar.setValue(value)
