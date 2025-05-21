@@ -25,24 +25,31 @@ class DownloadThread(QThread):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         base_path = os.path.join(script_dir, "Downloads")
 
-        for idx, username in enumerate(self.userslist):
-            if self.is_cancelled:
-                break
+        original_dir = os.getcwd()
 
-            user_path = os.path.join(base_path, username)
-            os.makedirs(user_path, exist_ok=True)
+        try:
+            for idx, username in enumerate(self.userslist):
+                if self.is_cancelled:
+                    break
 
-            from datetime import datetime
-            date_folder = datetime.now().strftime("%Y-%m-%d")
-            download_path = os.path.join(user_path, date_folder)
-            os.makedirs(download_path, exist_ok=True)
+                user_path = os.path.join(base_path, username)
+                os.makedirs(user_path, exist_ok=True)
 
-            os.chdir(download_path)
+                from datetime import datetime
+                date_folder = datetime.now().strftime("%Y-%m-%d")
+                download_path = os.path.join(user_path, date_folder)
+                os.makedirs(download_path, exist_ok=True)
 
-            json_dict = self.get_json(username)
-            if json_dict:
-                self.download_media(json_dict, username)  
-            self.update_progress.emit((idx + 1) * 100 // len(self.userslist))
+                os.chdir(download_path)
+
+                json_dict = self.get_json(username)
+                if json_dict:
+                    self.download_media(json_dict, username)  
+                self.update_progress.emit((idx + 1) * 100 // len(self.userslist))
+
+        finally:
+
+            os.chdir(original_dir)
 
         self.download_complete.emit()
 
@@ -122,8 +129,7 @@ class SnapchatDownloader(QWidget):
     def __init__(self):
         super().__init__()
         self.userslist = []
-        self.favorites = []
-        self.history = []
+        self.history = []  # Removed favorites list
         self.download_queue = []
         self.is_downloading = False
         self.initUI()
@@ -134,7 +140,6 @@ class SnapchatDownloader(QWidget):
         self.setWindowIcon(QIcon('snap.png'))
 
         main_layout = QVBoxLayout()
-
         self.tab_widget = QTabWidget()
 
         users_tab = QWidget()
@@ -154,15 +159,8 @@ class SnapchatDownloader(QWidget):
         self.user_list_widget = QListWidget()
         self.user_list_widget.setSelectionMode(QListWidget.ExtendedSelection)
         self.user_list_widget.itemDoubleClicked.connect(self.add_to_download_queue)
-        users_list_layout.addWidget(QPushButton('Available Users'))
+        users_list_layout.addWidget(QPushButton('User Management'))  # Renamed to more professional title
         users_list_layout.addWidget(self.user_list_widget)
-
-        favorites_layout = QVBoxLayout()
-        self.favorites_widget = QListWidget()
-        self.favorites_widget.setSelectionMode(QListWidget.ExtendedSelection)
-        self.favorites_widget.itemDoubleClicked.connect(self.add_to_download_queue)
-        favorites_layout.addWidget(QPushButton('Favorites'))
-        favorites_layout.addWidget(self.favorites_widget)
 
         queue_layout = QVBoxLayout()
         self.queue_widget = QListWidget()
@@ -171,18 +169,13 @@ class SnapchatDownloader(QWidget):
         queue_layout.addWidget(self.queue_widget)
 
         lists_layout.addLayout(users_list_layout)
-        lists_layout.addLayout(favorites_layout)
         lists_layout.addLayout(queue_layout)
 
         button_layout = QHBoxLayout()
-        self.add_to_favorites = QPushButton('Add to Favorites')
-        self.remove_from_favorites = QPushButton('Remove from Favorites')
         self.add_all_to_queue = QPushButton('Add All to Queue')
         self.clear_queue = QPushButton('Clear Queue')
         self.remove_selected = QPushButton('Remove Selected')
 
-        button_layout.addWidget(self.add_to_favorites)
-        button_layout.addWidget(self.remove_from_favorites)
         button_layout.addWidget(self.add_all_to_queue)
         button_layout.addWidget(self.clear_queue)
         button_layout.addWidget(self.remove_selected)
@@ -200,7 +193,7 @@ class SnapchatDownloader(QWidget):
         users_layout.addWidget(self.download_button)
 
         users_tab.setLayout(users_layout)
-        self.tab_widget.addTab(users_tab, "Users")
+        self.tab_widget.addTab(users_tab, "User Management")  # Renamed tab title
 
         history_tab = QWidget()
         history_layout = QVBoxLayout()
@@ -222,8 +215,6 @@ class SnapchatDownloader(QWidget):
         self.resize(800, 600)
 
         self.add_user_button.clicked.connect(self.add_user)
-        self.add_to_favorites.clicked.connect(self.add_selected_to_favorites)
-        self.remove_from_favorites.clicked.connect(self.remove_selected_from_favorites)
         self.add_all_to_queue.clicked.connect(self.add_all_to_download_queue)
         self.clear_queue.clicked.connect(self.clear_download_queue)
         self.remove_selected.clicked.connect(self.remove_selected_items)
@@ -234,26 +225,24 @@ class SnapchatDownloader(QWidget):
             with open('snapchat_data.json', 'r') as f:
                 data = json.load(f)
                 self.userslist = data.get('users', [])
-                self.favorites = data.get('favorites', [])
                 self.history = data.get('history', [])
 
                 self.user_list_widget.clear()
-                self.favorites_widget.clear()
                 self.history_widget.clear()
 
                 self.user_list_widget.addItems(self.userslist)
-                self.favorites_widget.addItems(self.favorites)
                 self.history_widget.addItems(self.history)
         except FileNotFoundError:
             pass
 
     def save_data(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
         data = {
             'users': self.userslist,
-            'favorites': self.favorites,
             'history': self.history
         }
-        with open('snapchat_data.json', 'w') as f:
+        data_path = os.path.join(script_dir, 'snapchat_data.json')
+        with open(data_path, 'w') as f:
             json.dump(data, f, indent=4)
 
     def add_user(self):
@@ -360,7 +349,45 @@ class SnapchatDownloader(QWidget):
         self.progress_bar.setValue(value)
 
     def update_log(self, message):
-        self.log_area.append(message)
+
+        if self.log_area.toPlainText() == "":
+            self.log_area.setText("Username      File Name                                    Type   Size     Status\n")
+            self.log_area.append("=" * 80)
+
+        if "•" in message:
+            username, info = message.split(" • ")
+
+            if "Downloaded" in info:
+                filename = info.split("Downloaded ")[1]
+                file_path = os.path.join(os.getcwd(), filename)
+                file_size = f"{os.path.getsize(file_path) / (1024*1024):.1f}MB"
+                file_type = "Video" if filename.endswith(".mp4") else "Image"
+                status = "✓ Done"
+                formatted_msg = f"{username:<12} {filename:<40} {file_type:<6} {file_size:<8} {status}"
+
+            elif "File already exists" in info:
+                filename = info.split(": ")[1]
+                file_path = os.path.join(os.getcwd(), filename)
+                file_size = f"{os.path.getsize(file_path) / (1024*1024):.1f}MB"
+                file_type = "Video" if filename.endswith(".mp4") else "Image"
+                status = "⚠ Exists"
+                formatted_msg = f"{username:<12} {filename:<40} {file_type:<6} {file_size:<8} {status}"
+
+            elif "No stories found" in info:
+                formatted_msg = f"{username:<12} {'No stories available':<40} {'-':<6} {'-':<8} ℹ Info"
+
+            elif "No URL provided" in info:
+                formatted_msg = f"{username:<12} {'URL not available':<40} {'-':<6} {'-':<8} ⚠ Error"
+
+            elif "Cannot make connection" in info:
+                formatted_msg = f"{username:<12} {'Connection failed':<40} {'-':<6} {'-':<8} ⚠ Error"
+
+            else:
+                formatted_msg = message  
+
+            self.log_area.append(formatted_msg)
+        else:
+            self.log_area.append(message)  
 
     def add_history_to_available(self, item):
 
