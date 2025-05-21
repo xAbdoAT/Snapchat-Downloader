@@ -22,7 +22,6 @@ class DownloadThread(QThread):
         self.is_cancelled = False
 
     def run(self):
-
         script_dir = os.path.dirname(os.path.abspath(__file__))
         base_path = os.path.join(script_dir, "Downloads")
 
@@ -42,10 +41,66 @@ class DownloadThread(QThread):
 
             json_dict = self.get_json(username)
             if json_dict:
-                self.download_media(json_dict)
+                self.download_media(json_dict, username)  
             self.update_progress.emit((idx + 1) * 100 // len(self.userslist))
 
         self.download_complete.emit()
+
+    def download_media(self, json_dict, current_username):  
+        try:
+
+            username = current_username
+
+            for i in json_dict["props"]["pageProps"]["story"]["snapList"]:
+                if self.is_cancelled:
+                    return
+
+                retries = 3
+                while retries > 0 and not self.is_cancelled:
+                    try:
+                        file_url = i["snapUrls"]["mediaUrl"]
+                        if not file_url:
+                            self.update_log.emit(f"{username} • No URL provided by Snapchat.")
+                            break
+
+                        r = requests.get(file_url, stream=True, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+
+                        if "image" in r.headers['Content-Type']:
+                            file_name = r.headers['ETag'].replace('"', '') + ".jpeg"
+                        elif "video" in r.headers['Content-Type']:
+                            file_name = r.headers['ETag'].replace('"', '') + ".mp4"
+                        else:
+                            continue
+
+                        current_dir = os.getcwd()
+                        full_path = os.path.join(current_dir, file_name)
+
+                        if os.path.isfile(full_path):
+                            self.update_log.emit(f"{username} • File already exists: {file_name}")
+                            break
+
+                        sleep(0.3)
+
+                        if r.status_code == 200:
+                            with open(full_path, 'wb') as f:
+                                for chunk in r:
+                                    f.write(chunk)
+                            self.update_log.emit(f"{username} • Downloaded {file_name}")
+                            break  
+                        else:
+                            self.update_log.emit(f"{username} • Cannot make connection to download media!")
+                            break
+                    except requests.RequestException as e:
+                        if self.is_cancelled:
+                            return
+                        retries -= 1
+                        if retries == 0:
+                            self.update_log.emit(f"{username} • Failed to download after 3 attempts: {str(e)}")
+                        else:
+                            sleep(1)
+                            continue
+        except KeyError:
+            self.update_log.emit(f"{username} • No stories found for the last 24h.")
 
     def get_json(self, username):
         base_url = "https://story.snapchat.com/@"
@@ -62,59 +117,6 @@ class DownloadThread(QThread):
         data = json.loads(snaps)
 
         return data
-
-    def download_media(self, json_dict):
-        try:
-            for i in json_dict["props"]["pageProps"]["story"]["snapList"]:
-                if self.is_cancelled:
-                    return
-
-                retries = 3
-                while retries > 0 and not self.is_cancelled:
-                    try:
-                        file_url = i["snapUrls"]["mediaUrl"]
-                        if not file_url:
-                            self.update_log.emit("There is a Story but no URL is provided by Snapchat.")
-                            break
-
-                        r = requests.get(file_url, stream=True, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-
-                        if "image" in r.headers['Content-Type']:
-                            file_name = r.headers['ETag'].replace('"', '') + ".jpeg"
-                        elif "video" in r.headers['Content-Type']:
-                            file_name = r.headers['ETag'].replace('"', '') + ".mp4"
-                        else:
-                            continue
-
-                        current_dir = os.getcwd()
-                        full_path = os.path.join(current_dir, file_name)
-
-                        if os.path.isfile(full_path):
-                            self.update_log.emit(f"File already exists: {file_name}")
-                            break
-
-                        sleep(0.3)
-
-                        if r.status_code == 200:
-                            with open(full_path, 'wb') as f:
-                                for chunk in r:
-                                    f.write(chunk)
-                            self.update_log.emit(f"Downloaded {file_name}")
-                            break  
-                        else:
-                            self.update_log.emit("[-] Cannot make connection to download media!")
-                            break
-                    except requests.RequestException as e:
-                        if self.is_cancelled:
-                            return
-                        retries -= 1
-                        if retries == 0:
-                            self.update_log.emit(f"Failed to download after 3 attempts: {str(e)}")
-                        else:
-                            sleep(1)
-                            continue
-        except KeyError:
-            self.update_log.emit("[-] No stories found for the last 24h.\n")
 
 class SnapchatDownloader(QWidget):
     def __init__(self):
