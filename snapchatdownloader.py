@@ -203,7 +203,15 @@ class SnapchatDownloader(QWidget):
         history_tab = QWidget()
         history_layout = QVBoxLayout()
         self.history_widget = QListWidget()
+        self.history_widget.setSelectionMode(QListWidget.ExtendedSelection)
+        self.history_widget.itemDoubleClicked.connect(self.add_history_to_available)
+
+        self.clear_history_button = QPushButton('Clear History')
+        self.clear_history_button.clicked.connect(self.clear_history)
+
+        history_layout.addWidget(QPushButton('Download History'))
         history_layout.addWidget(self.history_widget)
+        history_layout.addWidget(self.clear_history_button)
         history_tab.setLayout(history_layout)
         self.tab_widget.addTab(history_tab, "History")
 
@@ -351,6 +359,28 @@ class SnapchatDownloader(QWidget):
 
     def update_log(self, message):
         self.log_area.append(message)
+
+    def add_history_to_available(self, item):
+
+        username = item.text().split(' - ')[0]
+        if username not in self.userslist:
+            self.userslist.append(username)
+            self.user_list_widget.addItem(username)
+            self.save_data()
+            QMessageBox.information(self, "Success", f"Added {username} to available users.")
+        else:
+            QMessageBox.information(self, "Info", f"{username} is already in available users.")
+
+    def clear_history(self):
+        reply = QMessageBox.question(self, 'Clear History', 
+                                   'Are you sure you want to clear the download history?',
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.history.clear()
+            self.history_widget.clear()
+            self.save_data()
+            QMessageBox.information(self, "Success", "History cleared successfully.")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
